@@ -121,6 +121,25 @@ def api_get(params: dict) -> dict | None:
     return None
 
 
+def resolve_ddg_url(url: str) -> str:
+    """Extrait la vraie URL depuis les liens de redirection DuckDuckGo."""
+    if 'duckduckgo.com' in url:
+        from urllib.parse import parse_qs
+        params = parse_qs(urlparse(url).query)
+        real = params.get('uddg', [''])[0]
+        if real:
+            return real
+        # Tentative de suivi de redirection
+        try:
+            r = requests.head(url, allow_redirects=True, timeout=5)
+            if 'duckduckgo.com' not in r.url:
+                return r.url
+        except Exception:
+            pass
+        return ''
+    return url
+
+
 def is_directory_url(url: str) -> bool:
     try:
         domain = urlparse(url).netloc.lower().replace('www.', '')
@@ -136,7 +155,10 @@ def search_website_ddg(company_name: str, city: str) -> str:
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=5))
         for r in results:
-            url = r.get('href', '')
+            raw_url = r.get('href', '')
+            if not raw_url:
+                continue
+            url = resolve_ddg_url(raw_url)
             if url and not is_directory_url(url):
                 return url
     except Exception as e:
