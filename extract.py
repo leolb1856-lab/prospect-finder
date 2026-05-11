@@ -10,22 +10,22 @@ import requests
 # Paramètres par défaut (modifiables ici ou via CLI)
 # ──────────────────────────────────────────────
 NAF_CODES = [
-    '4110A',  # Promotion immobilière
-    '4120A',  # Construction maisons individuelles
-    '4120B',  # Construction autres bâtiments
-    '4211Z',  # Routes et autoroutes
-    '4311Z',  # Travaux démolition
-    '4312A',  # Travaux terrassement
-    '4321A',  # Travaux électricité
-    '4322A',  # Travaux plomberie
-    '4331Z',  # Plâtrerie
-    '4332A',  # Menuiserie bois
-    '4333Z',  # Revêtements sols et murs
-    '4334Z',  # Peinture et vitrerie
-    '4391A',  # Travaux charpente
-    '4391B',  # Travaux couverture
-    '4399A',  # Travaux étanchéité
-    '4399C',  # Maçonnerie générale
+    '41.10A',  # Promotion immobilière
+    '41.20A',  # Construction maisons individuelles
+    '41.20B',  # Construction autres bâtiments
+    '42.11Z',  # Routes et autoroutes
+    '43.11Z',  # Travaux démolition
+    '43.12A',  # Travaux terrassement
+    '43.21A',  # Travaux électricité
+    '43.22A',  # Travaux plomberie
+    '43.31Z',  # Plâtrerie
+    '43.32A',  # Menuiserie bois
+    '43.33Z',  # Revêtements sols et murs
+    '43.34Z',  # Peinture et vitrerie
+    '43.91A',  # Travaux charpente
+    '43.91B',  # Travaux couverture
+    '43.99A',  # Travaux étanchéité
+    '43.99C',  # Maçonnerie générale
 ]
 
 TRANCHES_EFFECTIF = ['NN', '00', '01', '02', '03', '11', '12']
