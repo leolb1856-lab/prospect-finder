@@ -3,9 +3,10 @@ import csv
 import logging
 import time
 from datetime import date
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 import requests
+from bs4 import BeautifulSoup
 
 # ──────────────────────────────────────────────
 # Paramètres par défaut (modifiables ici ou via CLI)
@@ -121,23 +122,11 @@ def api_get(params: dict) -> dict | None:
     return None
 
 
-def resolve_ddg_url(url: str) -> str:
-    """Extrait la vraie URL depuis les liens de redirection DuckDuckGo."""
-    if 'duckduckgo.com' in url:
-        from urllib.parse import parse_qs
-        params = parse_qs(urlparse(url).query)
-        real = params.get('uddg', [''])[0]
-        if real:
-            return real
-        # Tentative de suivi de redirection
-        try:
-            r = requests.head(url, allow_redirects=True, timeout=5)
-            if 'duckduckgo.com' not in r.url:
-                return r.url
-        except Exception:
-            pass
-        return ''
-    return url
+SEARCH_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+}
 
 
 def is_directory_url(url: str) -> bool:
@@ -148,21 +137,26 @@ def is_directory_url(url: str) -> bool:
         return True
 
 
-def search_website_ddg(company_name: str, city: str) -> str:
+def search_website_bing(company_name: str, city: str) -> str:
     try:
-        from duckduckgo_search import DDGS
-        query = f'"{company_name}" {city}'
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=5))
-        for r in results:
-            raw_url = r.get('href', '')
-            if not raw_url:
+        query = f'"{company_name}" {city} site officiel'
+        r = requests.get(
+            'https://www.bing.com/search',
+            params={'q': query, 'setlang': 'fr', 'cc': 'FR'},
+            headers=SEARCH_HEADERS,
+            timeout=10,
+        )
+        soup = BeautifulSoup(r.text, 'html.parser')
+        for tag in soup.select('li.b_algo h2 a, li.b_algo .b_attribution cite'):
+            url = tag.get('href') or tag.text.strip()
+            if not url:
                 continue
-            url = resolve_ddg_url(raw_url)
-            if url and not is_directory_url(url):
+            if not url.startswith('http'):
+                url = 'https://' + url.split('›')[0].strip()
+            if url.startswith('http') and not is_directory_url(url):
                 return url
     except Exception as e:
-        log.debug('Recherche DDG échouée pour %s : %s', company_name, e)
+        log.debug('Bing search failed for %s: %s', company_name, e)
     return ''
 
 
@@ -283,7 +277,7 @@ def enrich_websites(prospects: list[dict]) -> list[dict]:
             log.info('[Web %d/%d] %s — déjà présent', i, total, p['Nom entreprise'])
             continue
         log.info('[Web %d/%d] Recherche : %s (%s)', i, total, p['Nom entreprise'], p['Ville'])
-        website = search_website_ddg(p['Nom entreprise'], p['Ville'])
+        website = search_website_bing(p['Nom entreprise'], p['Ville'])
         p['Site web'] = website
         if website:
             log.info('[Web %d/%d] Trouvé : %s', i, total, website)
