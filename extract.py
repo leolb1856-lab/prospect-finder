@@ -62,14 +62,30 @@ EFFECTIF_MAP = {
 
 # Domaines d'annuaires à exclure des résultats de recherche
 DIRECTORY_DOMAINS = {
+    # Annuaires d'entreprises
     'societe.com', 'pappers.fr', 'infogreffe.fr', 'verif.com',
-    'kompass.com', 'manageo.fr', 'companywall.fr', 'sirene.fr',
-    'bodacc.fr', 'annuaire-entreprises.data.gouv.fr', 'data.gouv.fr',
+    'kompass.com', 'manageo.fr', 'companywall.fr', 'corporama.com',
+    'société.com', 'dirigeant.fr', 'nomination.fr', 'judiciaire.fr',
+    # Sites gouvernementaux / officiels
+    'gouv.fr', 'data.gouv.fr', 'sirene.fr', 'bodacc.fr',
+    'annuaire-entreprises.data.gouv.fr', 'entreprises.gouv.fr',
+    'service-public.fr', 'impots.gouv.fr', 'urssaf.fr',
+    'ameli.fr', 'pole-emploi.fr', 'francecompetences.fr',
+    'cci.fr', 'bpifrance.fr', 'banque-france.fr',
+    # Réseaux sociaux
     'linkedin.com', 'facebook.com', 'instagram.com', 'twitter.com',
-    'pagesjaunes.fr', 'google.com', 'bing.com', 'duckduckgo.com',
-    'youtube.com', 'lafourchette.com', 'tripadvisor.fr',
-    'entreprises.gouv.fr', 'cci.fr', 'bpifrance.fr',
-    'indeed.com', 'glassdoor.com', 'leboncoin.fr',
+    'tiktok.com', 'youtube.com', 'pinterest.fr', 'pinterest.com',
+    # Moteurs de recherche
+    'google.com', 'google.fr', 'bing.com', 'duckduckgo.com', 'yahoo.com',
+    # Annuaires généralistes
+    'pagesjaunes.fr', 'pagesblanches.fr', 'lafourchette.com',
+    'tripadvisor.fr', 'tripadvisor.com', 'yelp.com', 'yelp.fr',
+    # Emploi
+    'indeed.com', 'indeed.fr', 'glassdoor.com', 'glassdoor.fr',
+    'welcometothejungle.com', 'hellowork.com', 'cadremploi.fr',
+    # Divers
+    'leboncoin.fr', 'amazon.fr', 'amazon.com', 'wikipedia.org',
+    'wikimedia.org', 'wikidata.org',
 }
 
 logging.basicConfig(
