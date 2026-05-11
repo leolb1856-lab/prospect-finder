@@ -35,7 +35,7 @@ DEPARTEMENTS = []  # vide = toute la France, ex: ['75', '69', '13']
 
 MAX_RESULTS = 500
 
-ONLY_WITH_WEBSITE = True
+ONLY_WITH_WEBSITE = False  # L'API ne fournit pas de site web — enrichir via Clay
 
 # ──────────────────────────────────────────────
 # Constantes

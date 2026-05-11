@@ -12,9 +12,9 @@ on:
         required: false
         default: ''
       only_with_website:
-        description: 'Uniquement avec site web (true/false)'
+        description: 'Uniquement avec site web (true/false) — API ne fournit pas ce champ, laisser false'
         required: false
-        default: 'true'
+        default: 'false'
 
 jobs:
   extract:
