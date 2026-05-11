@@ -1,0 +1,45 @@
+name: Extract BTP Prospects
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_results:
+        description: 'Nombre max de prospects'
+        required: false
+        default: '500'
+      departements:
+        description: 'Départements (séparés par virgule, vide = France entière)'
+        required: false
+        default: ''
+      only_with_website:
+        description: 'Uniquement avec site web (true/false)'
+        required: false
+        default: 'true'
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run extraction
+        run: |
+          python extract.py \
+            --max-results ${{ github.event.inputs.max_results }} \
+            --departements "${{ github.event.inputs.departements }}" \
+            --only-with-website ${{ github.event.inputs.only_with_website }}
+
+      - name: Upload CSV as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prospects-btp-${{ github.run_id }}
+          path: prospects_btp_*.csv
+          retention-days: 30
