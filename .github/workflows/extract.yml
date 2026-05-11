@@ -12,9 +12,13 @@ on:
         required: false
         default: ''
       only_with_website:
-        description: 'Uniquement avec site web (true/false) — API ne fournit pas ce champ, laisser false'
+        description: 'Uniquement avec site web (true/false)'
         required: false
         default: 'false'
+      search_websites:
+        description: 'Chercher les sites web via DuckDuckGo (true/false) — rallonge le run'
+        required: false
+        default: 'true'
 
 jobs:
   extract:
@@ -35,7 +39,8 @@ jobs:
           python extract.py \
             --max-results ${{ github.event.inputs.max_results }} \
             --departements "${{ github.event.inputs.departements }}" \
-            --only-with-website ${{ github.event.inputs.only_with_website }}
+            --only-with-website ${{ github.event.inputs.only_with_website }} \
+            --search-websites ${{ github.event.inputs.search_websites }}
 
       - name: Upload CSV as artifact
         uses: actions/upload-artifact@v4

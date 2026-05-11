@@ -3,6 +3,7 @@ import csv
 import logging
 import time
 from datetime import date
+from urllib.parse import urlparse
 
 import requests
 
@@ -28,14 +29,16 @@ NAF_CODES = [
     '43.99C',  # Maçonnerie générale
 ]
 
-TRANCHES_EFFECTIF = ['NN', '00', '01', '02', '03', '11', '12']
-# NN=0 salarié, 00=0, 01=1-2, 02=3-5, 03=6-9, 11=10-19, 12=20-49
+TRANCHES_EFFECTIF = ['02', '03', '11', '12']
+# 02=3-5 salariés, 03=6-9, 11=10-19, 12=20-49
 
 DEPARTEMENTS = []  # vide = toute la France, ex: ['75', '69', '13']
 
 MAX_RESULTS = 500
 
-ONLY_WITH_WEBSITE = False  # L'API ne fournit pas de site web — enrichir via Clay
+ONLY_WITH_WEBSITE = False
+
+SEARCH_WEBSITES = True  # Chercher les sites web via DuckDuckGo (plus lent)
 
 # ──────────────────────────────────────────────
 # Constantes
@@ -43,6 +46,7 @@ ONLY_WITH_WEBSITE = False  # L'API ne fournit pas de site web — enrichir via C
 API_BASE = 'https://recherche-entreprises.api.gouv.fr/search'
 PER_PAGE = 25
 SLEEP_BETWEEN_REQUESTS = 0.4
+SLEEP_BETWEEN_SEARCHES = 1.2  # entre chaque recherche DDG
 MAX_RETRIES = 3
 
 EFFECTIF_MAP = {
@@ -54,6 +58,18 @@ EFFECTIF_MAP = {
     '11': '10-19 salariés',
     '12': '20-49 salariés',
     '21': '50-99 salariés',
+}
+
+# Domaines d'annuaires à exclure des résultats de recherche
+DIRECTORY_DOMAINS = {
+    'societe.com', 'pappers.fr', 'infogreffe.fr', 'verif.com',
+    'kompass.com', 'manageo.fr', 'companywall.fr', 'sirene.fr',
+    'bodacc.fr', 'annuaire-entreprises.data.gouv.fr', 'data.gouv.fr',
+    'linkedin.com', 'facebook.com', 'instagram.com', 'twitter.com',
+    'pagesjaunes.fr', 'google.com', 'bing.com', 'duckduckgo.com',
+    'youtube.com', 'lafourchette.com', 'tripadvisor.fr',
+    'entreprises.gouv.fr', 'cci.fr', 'bpifrance.fr',
+    'indeed.com', 'glassdoor.com', 'leboncoin.fr',
 }
 
 logging.basicConfig(
@@ -71,6 +87,8 @@ def parse_args():
                         help='Codes département séparés par virgule, ex: 75,69,13')
     parser.add_argument('--only-with-website', type=str, default=str(ONLY_WITH_WEBSITE),
                         help='true ou false')
+    parser.add_argument('--search-websites', type=str, default=str(SEARCH_WEBSITES),
+                        help='Chercher les sites web via DuckDuckGo (true/false)')
     return parser.parse_args()
 
 
@@ -87,7 +105,30 @@ def api_get(params: dict) -> dict | None:
     return None
 
 
-def find_website(result: dict) -> str:
+def is_directory_url(url: str) -> bool:
+    try:
+        domain = urlparse(url).netloc.lower().replace('www.', '')
+        return any(d in domain for d in DIRECTORY_DOMAINS)
+    except Exception:
+        return True
+
+
+def search_website_ddg(company_name: str, city: str) -> str:
+    try:
+        from duckduckgo_search import DDGS
+        query = f'"{company_name}" {city}'
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=5))
+        for r in results:
+            url = r.get('href', '')
+            if url and not is_directory_url(url):
+                return url
+    except Exception as e:
+        log.debug('Recherche DDG échouée pour %s : %s', company_name, e)
+    return ''
+
+
+def find_website_in_api(result: dict) -> str:
     siege = result.get('siege') or {}
     candidates = [
         result.get('site_internet'),
@@ -116,10 +157,15 @@ def get_dirigeant(result: dict) -> str:
     dirigeants = result.get('dirigeants') or []
     if not dirigeants:
         return ''
-    d = dirigeants[0]
-    prenom = d.get('prenom', '') or ''
-    nom = d.get('nom', '') or ''
-    return f'{prenom} {nom}'.strip()
+    # Chercher un dirigeant personne physique en priorité
+    for d in dirigeants:
+        if d.get('type_dirigeant') == 'personne physique':
+            prenom = d.get('prenoms', '') or d.get('prenom', '') or ''
+            nom = d.get('nom', '') or ''
+            full = f'{prenom} {nom}'.strip()
+            if full:
+                return full
+    return ''
 
 
 def extract_prospect(result: dict) -> dict:
@@ -134,7 +180,8 @@ def extract_prospect(result: dict) -> dict:
         'Ville': siege.get('libelle_commune', ''),
         'Département': siege.get('departement', ''),
         'Effectif': EFFECTIF_MAP.get(tranche, tranche),
-        'Site web': find_website(result),
+        'Site web': find_website_in_api(result),
+        '_raw': result,  # temporaire pour la recherche DDG
     }
 
 
@@ -190,10 +237,27 @@ def fetch_naf(naf: str, departements: list[str], tranches: list[str],
     return prospects
 
 
+def enrich_websites(prospects: list[dict]) -> list[dict]:
+    total = len(prospects)
+    log.info('=== Recherche des sites web pour %d entreprises ===', total)
+    for i, p in enumerate(prospects, 1):
+        if p['Site web']:
+            log.info('[Web %d/%d] %s — déjà présent', i, total, p['Nom entreprise'])
+            continue
+        log.info('[Web %d/%d] Recherche : %s (%s)', i, total, p['Nom entreprise'], p['Ville'])
+        website = search_website_ddg(p['Nom entreprise'], p['Ville'])
+        p['Site web'] = website
+        if website:
+            log.info('[Web %d/%d] Trouvé : %s', i, total, website)
+        time.sleep(SLEEP_BETWEEN_SEARCHES)
+    return prospects
+
+
 def main():
     args = parse_args()
 
     only_website = args.only_with_website.lower() not in ('false', '0', 'no')
+    search_websites = args.search_websites.lower() not in ('false', '0', 'no')
     departements = [d.strip() for d in args.departements.split(',') if d.strip()] or DEPARTEMENTS
     max_results = args.max_results
 
@@ -201,7 +265,8 @@ def main():
     log.info('NAF : %s', NAF_CODES)
     log.info('Départements : %s', departements or 'France entière')
     log.info('Max résultats : %d', max_results)
-    log.info('Uniquement avec site web : %s', only_website)
+    log.info('Effectifs ciblés : %s', TRANCHES_EFFECTIF)
+    log.info('Recherche sites web : %s', search_websites)
 
     all_prospects: list[dict] = []
     seen_sirets: set[str] = set()
@@ -224,6 +289,13 @@ def main():
 
         log.info('[NAF %s] Terminé — total cumulé : %d', naf, len(all_prospects))
 
+    if search_websites and all_prospects:
+        all_prospects = enrich_websites(all_prospects)
+
+    # Retirer le champ temporaire _raw
+    for p in all_prospects:
+        p.pop('_raw', None)
+
     filename = f'prospects_btp_{date.today().isoformat()}.csv'
     fieldnames = ['Nom entreprise', 'SIRET', 'Code NAF', 'Dirigeant',
                   'Adresse', 'Ville', 'Département', 'Effectif', 'Site web']
@@ -233,8 +305,9 @@ def main():
         writer.writeheader()
         writer.writerows(all_prospects)
 
-    log.info('=== Extraction terminée : %d prospects exportés dans %s ===',
-             len(all_prospects), filename)
+    with_website = sum(1 for p in all_prospects if p.get('Site web'))
+    log.info('=== Extraction terminée : %d prospects (%d avec site web) → %s ===',
+             len(all_prospects), with_website, filename)
 
 
 if __name__ == '__main__':
