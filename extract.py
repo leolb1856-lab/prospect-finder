@@ -1,15 +1,15 @@
 import argparse
 import csv
 import logging
+import os
 import time
 from datetime import date
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 
 import requests
-from bs4 import BeautifulSoup
 
 # ──────────────────────────────────────────────
-# Paramètres par défaut (modifiables ici ou via CLI)
+# Paramètres par défaut
 # ──────────────────────────────────────────────
 NAF_CODES = [
     '41.10A',  # Promotion immobilière
@@ -39,15 +39,16 @@ MAX_RESULTS = 500
 
 ONLY_WITH_WEBSITE = False
 
-SEARCH_WEBSITES = True  # Chercher les sites web via DuckDuckGo (plus lent)
+SEARCH_WEBSITES = True  # Activer la recherche Google pour les sites web
 
 # ──────────────────────────────────────────────
 # Constantes
 # ──────────────────────────────────────────────
 API_BASE = 'https://recherche-entreprises.api.gouv.fr/search'
+GOOGLE_SEARCH_URL = 'https://www.googleapis.com/customsearch/v1'
 PER_PAGE = 25
 SLEEP_BETWEEN_REQUESTS = 0.4
-SLEEP_BETWEEN_SEARCHES = 1.2  # entre chaque recherche DDG
+SLEEP_BETWEEN_SEARCHES = 0.5
 MAX_RETRIES = 3
 
 EFFECTIF_MAP = {
@@ -61,18 +62,15 @@ EFFECTIF_MAP = {
     '21': '50-99 salariés',
 }
 
-# Domaines d'annuaires à exclure des résultats de recherche
 DIRECTORY_DOMAINS = {
     # Annuaires d'entreprises
     'societe.com', 'pappers.fr', 'infogreffe.fr', 'verif.com',
     'kompass.com', 'manageo.fr', 'companywall.fr', 'corporama.com',
-    'société.com', 'dirigeant.fr', 'nomination.fr', 'judiciaire.fr',
-    # Sites gouvernementaux / officiels
+    'dirigeant.fr', 'nomination.fr', 'judiciaire.fr',
+    # Sites gouvernementaux
     'gouv.fr', 'data.gouv.fr', 'sirene.fr', 'bodacc.fr',
-    'annuaire-entreprises.data.gouv.fr', 'entreprises.gouv.fr',
     'service-public.fr', 'impots.gouv.fr', 'urssaf.fr',
-    'ameli.fr', 'pole-emploi.fr', 'francecompetences.fr',
-    'cci.fr', 'bpifrance.fr', 'banque-france.fr',
+    'ameli.fr', 'pole-emploi.fr', 'cci.fr', 'bpifrance.fr',
     # Réseaux sociaux
     'linkedin.com', 'facebook.com', 'instagram.com', 'twitter.com',
     'tiktok.com', 'youtube.com', 'pinterest.fr', 'pinterest.com',
@@ -82,8 +80,8 @@ DIRECTORY_DOMAINS = {
     'pagesjaunes.fr', 'pagesblanches.fr', 'lafourchette.com',
     'tripadvisor.fr', 'tripadvisor.com', 'yelp.com', 'yelp.fr',
     # Emploi
-    'indeed.com', 'indeed.fr', 'glassdoor.com', 'glassdoor.fr',
-    'welcometothejungle.com', 'hellowork.com', 'cadremploi.fr',
+    'indeed.com', 'indeed.fr', 'glassdoor.com', 'welcometothejungle.com',
+    'hellowork.com', 'cadremploi.fr',
     # Divers
     'leboncoin.fr', 'amazon.fr', 'amazon.com', 'wikipedia.org',
     'wikimedia.org', 'wikidata.org',
@@ -100,12 +98,9 @@ log = logging.getLogger(__name__)
 def parse_args():
     parser = argparse.ArgumentParser(description='Extraction prospects BTP')
     parser.add_argument('--max-results', type=int, default=MAX_RESULTS)
-    parser.add_argument('--departements', type=str, default='',
-                        help='Codes département séparés par virgule, ex: 75,69,13')
-    parser.add_argument('--only-with-website', type=str, default=str(ONLY_WITH_WEBSITE),
-                        help='true ou false')
-    parser.add_argument('--search-websites', type=str, default=str(SEARCH_WEBSITES),
-                        help='Chercher les sites web via DuckDuckGo (true/false)')
+    parser.add_argument('--departements', type=str, default='')
+    parser.add_argument('--only-with-website', type=str, default=str(ONLY_WITH_WEBSITE))
+    parser.add_argument('--search-websites', type=str, default=str(SEARCH_WEBSITES))
     return parser.parse_args()
 
 
@@ -122,13 +117,6 @@ def api_get(params: dict) -> dict | None:
     return None
 
 
-SEARCH_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-}
-
-
 def is_directory_url(url: str) -> bool:
     try:
         domain = urlparse(url).netloc.lower().replace('www.', '')
@@ -137,26 +125,36 @@ def is_directory_url(url: str) -> bool:
         return True
 
 
-def search_website_bing(company_name: str, city: str) -> str:
+def search_website_google(company_name: str, city: str) -> str:
+    api_key = os.environ.get('GOOGLE_API_KEY', '')
+    cse_id = os.environ.get('GOOGLE_CSE_ID', '')
+    if not api_key or not cse_id:
+        log.warning('GOOGLE_API_KEY ou GOOGLE_CSE_ID manquant — recherche désactivée')
+        return ''
     try:
-        query = f'"{company_name}" {city} site officiel'
+        query = f'"{company_name}" {city}'
         r = requests.get(
-            'https://www.bing.com/search',
-            params={'q': query, 'setlang': 'fr', 'cc': 'FR'},
-            headers=SEARCH_HEADERS,
+            GOOGLE_SEARCH_URL,
+            params={
+                'key': api_key,
+                'cx': cse_id,
+                'q': query,
+                'num': 5,
+                'gl': 'fr',
+                'hl': 'fr',
+            },
             timeout=10,
         )
-        soup = BeautifulSoup(r.text, 'html.parser')
-        for tag in soup.select('li.b_algo h2 a, li.b_algo .b_attribution cite'):
-            url = tag.get('href') or tag.text.strip()
-            if not url:
-                continue
-            if not url.startswith('http'):
-                url = 'https://' + url.split('›')[0].strip()
-            if url.startswith('http') and not is_directory_url(url):
+        if r.status_code != 200:
+            log.warning('Google API %s pour %s', r.status_code, company_name)
+            return ''
+        items = r.json().get('items') or []
+        for item in items:
+            url = item.get('link', '')
+            if url and not is_directory_url(url):
                 return url
     except Exception as e:
-        log.debug('Bing search failed for %s: %s', company_name, e)
+        log.debug('Google search failed for %s: %s', company_name, e)
     return ''
 
 
@@ -187,9 +185,6 @@ def build_address(siege: dict) -> str:
 
 def get_dirigeant(result: dict) -> str:
     dirigeants = result.get('dirigeants') or []
-    if not dirigeants:
-        return ''
-    # Chercher un dirigeant personne physique en priorité
     for d in dirigeants:
         if d.get('type_dirigeant') == 'personne physique':
             prenom = d.get('prenoms', '') or d.get('prenom', '') or ''
@@ -213,7 +208,6 @@ def extract_prospect(result: dict) -> dict:
         'Département': siege.get('departement', ''),
         'Effectif': EFFECTIF_MAP.get(tranche, tranche),
         'Site web': find_website_in_api(result),
-        '_raw': result,  # temporaire pour la recherche DDG
     }
 
 
@@ -271,16 +265,16 @@ def fetch_naf(naf: str, departements: list[str], tranches: list[str],
 
 def enrich_websites(prospects: list[dict]) -> list[dict]:
     total = len(prospects)
-    log.info('=== Recherche des sites web pour %d entreprises ===', total)
+    log.info('=== Recherche Google des sites web pour %d entreprises ===', total)
     for i, p in enumerate(prospects, 1):
         if p['Site web']:
             log.info('[Web %d/%d] %s — déjà présent', i, total, p['Nom entreprise'])
             continue
-        log.info('[Web %d/%d] Recherche : %s (%s)', i, total, p['Nom entreprise'], p['Ville'])
-        website = search_website_bing(p['Nom entreprise'], p['Ville'])
+        log.info('[Web %d/%d] %s (%s)', i, total, p['Nom entreprise'], p['Ville'])
+        website = search_website_google(p['Nom entreprise'], p['Ville'])
         p['Site web'] = website
         if website:
-            log.info('[Web %d/%d] Trouvé : %s', i, total, website)
+            log.info('[Web %d/%d] → %s', i, total, website)
         time.sleep(SLEEP_BETWEEN_SEARCHES)
     return prospects
 
@@ -294,11 +288,10 @@ def main():
     max_results = args.max_results
 
     log.info('=== Extraction BTP démarrée ===')
-    log.info('NAF : %s', NAF_CODES)
     log.info('Départements : %s', departements or 'France entière')
     log.info('Max résultats : %d', max_results)
     log.info('Effectifs ciblés : %s', TRANCHES_EFFECTIF)
-    log.info('Recherche sites web : %s', search_websites)
+    log.info('Recherche sites web (Google) : %s', search_websites)
 
     all_prospects: list[dict] = []
     seen_sirets: set[str] = set()
@@ -323,10 +316,6 @@ def main():
 
     if search_websites and all_prospects:
         all_prospects = enrich_websites(all_prospects)
-
-    # Retirer le champ temporaire _raw
-    for p in all_prospects:
-        p.pop('_raw', None)
 
     filename = f'prospects_btp_{date.today().isoformat()}.csv'
     fieldnames = ['Nom entreprise', 'SIRET', 'Code NAF', 'Dirigeant',

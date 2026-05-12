@@ -16,7 +16,7 @@ on:
         required: false
         default: 'false'
       search_websites:
-        description: 'Chercher les sites web via DuckDuckGo (true/false) — rallonge le run'
+        description: 'Chercher les sites web via Google (true/false)'
         required: false
         default: 'true'
 
@@ -35,6 +35,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run extraction
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
         run: |
           python extract.py \
             --max-results ${{ github.event.inputs.max_results }} \
